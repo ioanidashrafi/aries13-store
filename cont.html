@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contul meu | Aries13</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f8f5f0;
+      color: #25211e;
+    }
+    main {
+      max-width: 420px;
+      margin: 60px auto;
+      padding: 30px;
+      background: white;
+      border-radius: 16px;
+    }
+    h1 { letter-spacing: 5px; }
+    a { color: #514135; }
+    label { display: block; margin-top: 20px; }
+    input, button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 8px;
+      font: inherit;
+      border-radius: 8px;
+    }
+    input { border: 1px solid #b8ada3; }
+    button {
+      border: none;
+      background: #25211e;
+      color: white;
+      cursor: pointer;
+    }
+    button.secondary { background: #e8ded2; color: #25211e; }
+    button:disabled { opacity: .5; cursor: wait; }
+    #message { line-height: 1.5; overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="./">← Înapoi la magazin</a>
+    <h1>ARIES13</h1>
+    <h2>Contul meu</h2>
+
+    <form id="authForm">
+      <label for="email">Adresa de e-mail</label>
+      <input id="email" type="email" autocomplete="email"
+             required maxlength="254">
+
+      <label for="password">Parola</label>
+      <input id="password" type="password"
+             autocomplete="current-password" required minlength="8">
+      <small>Minimum 8 caractere.</small>
+
+      <button type="submit" name="action" value="login">
+        Autentificare
+      </button>
+      <button type="submit" name="action" value="signup"
+              class="secondary">
+        Creează cont
+      </button>
+    </form>
+
+    <section id="account" hidden>
+      <p>Ești autentificat cu <strong id="userEmail"></strong>.</p>
+      <button id="logout" type="button">Deconectare</button>
+    </section>
+
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const form = document.getElementById("authForm");
+    const account = document.getElementById("account");
+    const message = document.getElementById("message");
+    const logout = document.getElementById("logout");
+    const buttons = document.querySelectorAll("button");
+
+    function displaySession(session) {
+      form.hidden = Boolean(session);
+      account.hidden = !session;
+      document.getElementById("userEmail").textContent =
+        session?.user?.email || "";
+    }
+
+    function showError(error) {
+      const translations = {
+        "Invalid login credentials": "E-mail sau parolă incorectă.",
+        "Email not confirmed": "Confirmă întâi adresa de e-mail.",
+        "User already registered": "Acest cont există deja. Autentifică-te.",
+        "Failed to fetch": "Conexiunea a eșuat. Încearcă din nou."
+      };
+      message.textContent = translations[error.message] ||
+        "Nu am putut finaliza: " + error.message;
+    }
+
+    function setBusy(busy) {
+      buttons.forEach(button => button.disabled = busy);
+    }
+
+    async function start() {
+      setBusy(true);
+      try {
+        if (!window.supabase) {
+          throw new Error("Biblioteca nu s-a încărcat. Reîncarcă pagina.");
+        }
+
+        const client = window.supabase.createClient(
+          "https://snnaumexpevrobnbtebn.supabase.co",
+          "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+        );
+
+        client.auth.onAuthStateChange((_event, session) => {
+          displaySession(session);
+        });
+
+        form.addEventListener("submit", async event => {
+          event.preventDefault();
+          const signup = event.submitter?.value === "signup";
+          setBusy(true);
+          message.textContent = "Se procesează…";
+
+          try {
+            const credentials = {
+              email: document.getElementById("email").value.trim(),
+              password: document.getElementById("password").value
+            };
+
+            const { data, error } = signup
+              ? await client.auth.signUp(credentials)
+              : await client.auth.signInWithPassword(credentials);
+
+            if (error) throw error;
+
+            document.getElementById("password").value = "";
+            displaySession(data.session);
+            message.textContent = data.session
+              ? "Te-ai autentificat cu succes."
+              : "Verifică e-mailul și folderul Spam pentru confirmare, apoi revino aici pentru autentificare.";
+          } catch (error) {
+            showError(error);
+          } finally {
+            setBusy(false);
+          }
+        });
+
+        logout.addEventListener("click", async () => {
+          setBusy(true);
+          try {
+            const { error } = await client.auth.signOut();
+            if (error) throw error;
+            displaySession(null);
+            form.reset();
+            message.textContent = "Te-ai deconectat.";
+          } catch (error) {
+            showError(error);
+          } finally {
+            setBusy(false);
+          }
+        });
+
+        const { data, error } = await client.auth.getSession();
+        if (error) throw error;
+        displaySession(data.session);
+        setBusy(false);
+      } catch (error) {
+        showError(error);
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
