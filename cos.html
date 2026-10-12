@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coșul meu | Aries13</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f8f5f0;
+      color: #25211e;
+    }
+    main {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 28px;
+      background: white;
+      border-radius: 16px;
+    }
+    a { color: #514135; }
+    h1 { letter-spacing: 3px; }
+    .item {
+      display: flex;
+      gap: 24px;
+      padding: 24px 0;
+      border-bottom: 1px solid #e8ded2;
+    }
+    .item img { width: 110px; height: 165px; object-fit: contain; }
+    .details { flex: 1; }
+    button {
+      padding: 10px 14px;
+      margin: 4px;
+      border: 0;
+      border-radius: 6px;
+      background: #25211e;
+      color: white;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .warning { color: #a12a20; }
+    #total { font-size: 24px; font-weight: bold; }
+    #status { line-height: 1.5; }
+    @media (max-width: 500px) {
+      main { padding: 18px; }
+      .item { gap: 12px; }
+      .item img { width: 75px; height: 115px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="./">← Continuă cumpărăturile</a>
+    <h1>Coșul meu</h1>
+    <p id="status" role="status" aria-live="polite">
+      Se încarcă…
+    </p>
+    <div id="items"></div>
+    <p id="total"></p>
+    <p>Livrarea va fi calculată la finalizarea comenzii.</p>
+    <button disabled>Finalizarea comenzii — în curând</button>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const storageKey = "aries13-cart";
+    const items = document.getElementById("items");
+    const status = document.getElementById("status");
+    const total = document.getElementById("total");
+    const money = new Intl.NumberFormat("ro-RO", {
+      style: "currency", currency: "RON"
+    });
+
+    let cart = {};
+    let products = [];
+
+    function addText(parent, tag, text) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function saveCart() {
+      localStorage.setItem(storageKey, JSON.stringify(cart));
+    }
+
+    function updateQuantity(id, quantity) {
+      const previous = { ...cart };
+      if (quantity <= 0) delete cart[id];
+      else cart[id] = quantity;
+
+      try {
+        saveCart();
+        render();
+      } catch (error) {
+        cart = previous;
+        status.textContent =
+          "Browserul nu permite salvarea coșului. Verifică setările.";
+      }
+    }
+
+    function render() {
+      items.replaceChildren();
+      total.textContent = "";
+      let totalBani = 0;
+      let unavailable = false;
+      const entries = Object.entries(cart);
+
+      if (!entries.length) {
+        status.textContent = "Coșul tău este gol.";
+        return;
+      }
+
+      status.textContent = "";
+
+      for (const [id, quantity] of entries) {
+        const product = products.find(p => p.id === id);
+        const row = document.createElement("div");
+        row.className = "item";
+        items.appendChild(row);
+
+        if (product) {
+          const image = document.createElement("img");
+          image.src = product.image_url;
+          image.alt = product.name;
+          row.appendChild(image);
+        }
+
+        const details = document.createElement("div");
+        details.className = "details";
+        row.appendChild(details);
+        addText(details, "h2", product?.name || `Produs ${id}`);
+
+        if (product) {
+          const priceBani = Math.round(Number(product.price_ron) * 100);
+          totalBani += priceBani * quantity;
+          addText(details, "p", money.format(priceBani / 100));
+          addText(details, "p",
+            `${product.length_cm} cm · ${product.weight_g} g · ${product.color}`);
+
+          if (quantity > product.stock) {
+            unavailable = true;
+            const warning = addText(details, "p",
+              `Stoc disponibil: ${product.stock}. Redu cantitatea sau elimină produsul.`);
+            warning.className = "warning";
+          }
+        } else {
+          unavailable = true;
+          addText(details, "p", "Produsul nu mai este disponibil.");
+        }
+
+        const controls = document.createElement("div");
+        details.appendChild(controls);
+
+        function control(label, action, disabled = false) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = label;
+          button.disabled = disabled;
+          button.addEventListener("click", action);
+          controls.appendChild(button);
+        }
+
+        control("−", () => updateQuantity(id, quantity - 1));
+        addText(controls, "span", ` ${quantity} `);
+        control("+", () => updateQuantity(id, quantity + 1),
+          !product || quantity >= product.stock || quantity >= 99);
+        control("Elimină", () => updateQuantity(id, 0));
+      }
+
+      total.textContent = "Subtotal: " + money.format(totalBani / 100);
+      if (unavailable) {
+        status.textContent =
+          "Unele produse nu sunt disponibile în cantitatea selectată.";
+      }
+    }
+
+    async function start() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+          throw new Error("Coș invalid");
+        }
+
+        for (const [id, quantity] of Object.entries(saved).slice(0, 50)) {
+          if (/^[a-zA-Z0-9_-]{1,64}$/.test(id) &&
+              Number.isInteger(quantity) && quantity > 0 && quantity <= 99) {
+            cart[id] = quantity;
+          }
+        }
+
+        const ids = Object.keys(cart);
+        if (!ids.length) {
+          render();
+          return;
+        }
+
+        if (!window.supabase) throw new Error("Biblioteca nu s-a încărcat");
+
+        const client = window.supabase.createClient(
+          "https://snnaumexpevrobnbtebn.supabase.co",
+          "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+        );
+
+        const { data, error } = await client
+          .from("products")
+          .select("*")
+          .in("id", ids);
+
+        if (error) throw error;
+        products = data || [];
+        render();
+      } catch (error) {
+        status.textContent =
+          "Coșul nu s-a încărcat. Reîncarcă pagina.";
+        console.error(error);
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
