@@ -65,6 +65,7 @@
 <body>
   <header>ARIES13</header>
   <nav>
+    <a href="cos.html">Coșul meu</a>
     <a href="#produse">Produse</a>
     <a href="#despre">Despre noi</a>
     <a href="#contact">Contact</a>
@@ -151,11 +152,38 @@ async function loadProduct() {
       : "Stoc epuizat");
 
     const button = addText("button", product.stock > 0
-      ? "Comenzi disponibile în curând"
-      : "Indisponibil");
-    button.type = "button";
-    button.disabled = true;
-    button.style.cssText = "opacity:0.6;cursor:default;";
+  ? "Adaugă în coș"
+  : "Stoc epuizat");
+
+button.type = "button";
+button.disabled = product.stock <= 0;
+
+button.addEventListener("click", () => {
+  try {
+    const cart = JSON.parse(
+      localStorage.getItem("aries13-cart") || "{}"
+    );
+
+    if (!cart || typeof cart !== "object" || Array.isArray(cart)) {
+      throw new Error("Coș invalid");
+    }
+
+    const saved = cart[product.id];
+    const quantity = Number.isInteger(saved) && saved > 0
+      ? saved : 0;
+
+    if (quantity >= product.stock || quantity >= 99) {
+      alert("Ai atins cantitatea disponibilă pentru acest produs.");
+      return;
+    }
+
+    cart[product.id] = quantity + 1;
+    localStorage.setItem("aries13-cart", JSON.stringify(cart));
+    window.location.href = "cos.html";
+  } catch (error) {
+    alert("Coșul nu a putut fi salvat în browser.");
+  }
+});
   } catch (error) {
     card.textContent =
       "Produsul nu s-a încărcat. Reîncarcă pagina.";
