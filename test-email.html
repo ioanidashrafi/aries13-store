@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verificare e-mail | Aries13</title>
+  <style>
+    body {
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f8f5f0;
+    }
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 14px;
+      margin: 10px 0;
+      font: inherit;
+    }
+    button { cursor: pointer; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <a href="comenzi.html">← Comenzile mele</a>
+  <h1>Verificare e-mail</h1>
+  <p>Introdu numărul comenzii noi de test, care nu este anulată.</p>
+
+  <form id="test">
+    <input id="orderId" required placeholder="Numărul comenzii">
+    <button id="send">Trimite confirmarea</button>
+  </form>
+  <pre id="result" role="status"></pre>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const result = document.getElementById("result");
+    const button = document.getElementById("send");
+
+    document.getElementById("test").addEventListener("submit", async event => {
+      event.preventDefault();
+      button.disabled = true;
+      result.textContent = "Se verifică…";
+
+      try {
+        const client = window.supabase.createClient(
+          "https://snnaumexpevrobnbtebn.supabase.co",
+          "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+        );
+
+        const { data: auth, error: authError } = await client.auth.getUser();
+        if (authError || !auth.user) {
+          throw new Error("Autentifică-te în cont, apoi revino aici.");
+        }
+
+        const { data, error } = await client.functions.invoke(
+          "confirmare-comanda",
+          {
+            body: {
+              order_id: document.getElementById("orderId").value.trim()
+            }
+          }
+        );
+
+        if (error) {
+          let details = "";
+          if (error.context instanceof Response) {
+            const response = error.context;
+            const body = await response.clone().text();
+            details = "\nHTTP " + response.status + "\n" + body;
+          }
+
+          result.textContent = error.message + details;
+          return;
+        }
+
+        result.textContent = data?.already_sent
+          ? "Confirmarea a fost deja acceptată de Brevo."
+          : data?.pending
+          ? "Trimiterea este deja în desfășurare. Verifică logurile funcției."
+          : data?.ok
+          ? "Brevo a acceptat e-mailul. Verifică Inbox, Spam și logurile Brevo."
+          : JSON.stringify(data, null, 2);
+      } catch (error) {
+        result.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
