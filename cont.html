@@ -135,8 +135,13 @@
             };
 
             const { data, error } = signup
-              ? await client.auth.signUp(credentials)
-              : await client.auth.signInWithPassword(credentials);
+  ? await client.auth.signUp({
+      ...credentials,
+      options: {
+        emailRedirectTo: "https://ioanidashrafi.github.io/aries13-store/cont.html"
+      }
+    })
+  : await client.auth.signInWithPassword(credentials);
 
             if (error) throw error;
 
