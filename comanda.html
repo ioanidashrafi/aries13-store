@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finalizează comanda | Aries13</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f8f5f0;
+      color: #25211e;
+    }
+    main {
+      max-width: 650px;
+      margin: 30px auto;
+      padding: 28px;
+      background: white;
+      border-radius: 16px;
+    }
+    a { color: #514135; }
+    h1 { font-size: 28px; }
+    label { display: block; margin-top: 18px; }
+    input, textarea, button {
+      width: 100%;
+      padding: 13px;
+      margin-top: 8px;
+      border-radius: 8px;
+      font: inherit;
+    }
+    input, textarea { border: 1px solid #b8ada3; }
+    textarea { resize: vertical; }
+    button {
+      border: 0;
+      background: #25211e;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .summary {
+      padding: 18px;
+      background: #f8f5f0;
+      border-radius: 8px;
+      line-height: 1.6;
+    }
+    #status { line-height: 1.6; overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="cos.html">← Înapoi la coș</a>
+    <h1>Finalizează comanda</h1>
+    <p id="status" role="status" aria-live="polite">
+      Se verifică produsele și contul…
+    </p>
+
+    <div id="summary" class="summary" hidden></div>
+
+    <form id="orderForm" hidden>
+      <fieldset id="fields">
+        <label for="fullName">Nume și prenume</label>
+        <input id="fullName" autocomplete="name"
+               required minlength="2" maxlength="120">
+
+        <label for="phone">Telefon</label>
+        <input id="phone" type="tel" autocomplete="tel"
+               required minlength="7" maxlength="30">
+
+        <label for="county">Județ / București</label>
+        <input id="county" autocomplete="address-level1"
+               required minlength="2" maxlength="80">
+
+        <label for="city">Localitate / sector</label>
+        <input id="city" autocomplete="address-level2"
+               required minlength="2" maxlength="120">
+
+        <label for="address">Adresa completă</label>
+        <textarea id="address" autocomplete="street-address"
+                  rows="3" required minlength="5" maxlength="300"
+                  placeholder="Stradă, număr, bloc, scară, etaj, apartament"></textarea>
+
+        <p><strong>Livrare gratuită în România.</strong></p>
+        <p>Plată: <strong>ramburs la livrare</strong>.</p>
+        <button id="submitOrder" type="submit">Trimite comanda</button>
+      </fieldset>
+    </form>
+
+    <p id="loginLink" hidden>
+      <a href="cont.html">Autentifică-te în cont</a>,
+      apoi revino la această pagină.
+    </p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const storageKey = "aries13-cart";
+    const pendingKey = "aries13-pending-order";
+    const status = document.getElementById("status");
+    const summary = document.getElementById("summary");
+    const form = document.getElementById("orderForm");
+    const fields = document.getElementById("fields");
+    const submit = document.getElementById("submitOrder");
+    const money = new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: "RON"
+    });
+
+    let client;
+    let user;
+    let cart;
+    let subtotalBani = 0;
+    let busy = false;
+
+    function readCart() {
+      const saved = JSON.parse(
+        localStorage.getItem(storageKey) || "{}"
+      );
+
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+        throw new Error("Coș invalid. Revino la coș.");
+      }
+
+      const entries = Object.entries(saved).sort(([a], [b]) =>
+        a.localeCompare(b)
+      );
+
+      if (!entries.length) {
+        throw new Error("Coșul este gol. Adaugă un produs.");
+      }
+
+      if (entries.length > 50) {
+        throw new Error("Coșul conține prea multe produse.");
+      }
+
+      for (const [id, quantity] of entries) {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id) ||
+            !Number.isInteger(quantity) ||
+            quantity < 1 || quantity > 99) {
+          throw new Error("Coș invalid. Revino la coș.");
+        }
+      }
+
+      return Object.fromEntries(entries);
+    }
+
+    function addSummary(text, bold = false) {
+      const line = document.createElement(bold ? "strong" : "p");
+      line.textContent = text;
+      summary.appendChild(line);
+    }
+
+    async function loadSummary() {
+      const { data: products, error } = await client
+        .from("products")
+        .select("id, name, stock, price_ron")
+        .in("id", Object.keys(cart));
+
+      if (error) throw error;
+
+      summary.replaceChildren();
+      subtotalBani = 0;
+
+      for (const [id, quantity] of Object.entries(cart)) {
+        const product = products.find(item => item.id === id);
+
+        if (!product) {
+          throw new Error("Un produs nu mai este disponibil. Revino la coș.");
+        }
+
+        if (quantity > product.stock) {
+          throw new Error(
+            `Stoc insuficient pentru ${product.name}. Disponibil: ${product.stock}. Revino la coș.`
+          );
+        }
+
+        const lineBani =
+          Math.round(Number(product.price_ron) * 100) * quantity;
+
+        subtotalBani += lineBani;
+        addSummary(
+          `${product.name} × ${quantity} — ${money.format(lineBani / 100)}`
+        );
+      }
+
+      addSummary("Livrare: gratuită");
+      addSummary("Total: " + money.format(subtotalBani / 100), true);
+      summary.hidden = false;
+      submit.textContent =
+        "Trimite comanda — " + money.format(subtotalBani / 100);
+    }
+
+    async function requestId(payload) {
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const fingerprint = Array.from(new Uint8Array(digest))
+        .map(byte => byte.toString(16).padStart(2, "0")).join("");
+
+      let pending = null;
+      try {
+        pending = JSON.parse(sessionStorage.getItem(pendingKey) || "null");
+      } catch (_) {}
+
+      if (pending?.fingerprint === fingerprint &&
+          typeof pending.id === "string") {
+        return pending.id;
+      }
+
+      const id = crypto.randomUUID();
+      sessionStorage.setItem(
+        pendingKey, JSON.stringify({ fingerprint, id })
+      );
+      return id;
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (busy) return;
+
+      busy = true;
+      fields.disabled = true;
+      status.textContent = "Se trimite comanda…";
+
+      try {
+        if (JSON.stringify(readCart()) !== JSON.stringify(cart)) {
+          throw new Error(
+            "Coșul a fost modificat. Reîncarcă pagina înainte de a comanda."
+          );
+        }
+
+        const previousTotal = subtotalBani;
+        await loadSummary();
+
+        if (previousTotal !== subtotalBani) {
+          throw new Error(
+            "Prețul s-a actualizat. Verifică noul total și apasă din nou Trimite comanda."
+          );
+        }
+
+        const payload = {
+          p_cart: cart,
+          p_full_name: document.getElementById("fullName").value.trim(),
+          p_phone: document.getElementById("phone").value.trim(),
+          p_county: document.getElementById("county").value.trim(),
+          p_city: document.getElementById("city").value.trim(),
+          p_address: document.getElementById("address").value.trim()
+        };
+
+        const id = await requestId({ user: user.id, ...payload });
+
+        const { data: orderId, error } = await client.rpc(
+          "place_order", { p_request_id: id, ...payload }
+        );
+
+        if (error) throw error;
+        if (!orderId) throw new Error("Nu am primit numărul comenzii.");
+
+        form.hidden = true;
+        summary.hidden = true;
+        status.textContent =
+          `Comanda a fost înregistrată! Numărul comenzii: ${orderId}. Plata se face ramburs, iar livrarea este gratuită.`;
+
+        // Curățarea coșului nu schimbă rezultatul comenzii salvate.
+        try {
+          if (JSON.stringify(readCart()) === JSON.stringify(cart)) {
+            localStorage.removeItem(storageKey);
+          }
+          sessionStorage.removeItem(pendingKey);
+        } catch (_) {}
+      } catch (error) {
+        status.textContent =
+          "Comanda nu a fost confirmată: " + error.message;
+        fields.disabled = false;
+      } finally {
+        busy = false;
+      }
+    });
+
+    async function start() {
+      try {
+        if (!window.supabase) {
+          throw new Error("Conexiunea nu s-a încărcat. Reîncarcă pagina.");
+        }
+
+        client = window.supabase.createClient(
+          "https://snnaumexpevrobnbtebn.supabase.co",
+          "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+        );
+
+        const { data, error } = await client.auth.getUser();
+        if (error || !data.user) {
+          status.textContent = "Autentifică-te pentru a trimite comanda.";
+          document.getElementById("loginLink").hidden = false;
+          return;
+        }
+
+        user = data.user;
+        cart = readCart();
+        await loadSummary();
+        status.textContent = "";
+        form.hidden = false;
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
