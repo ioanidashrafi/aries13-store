@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comenzile mele | Aries13</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f8f5f0;
+      color: #25211e;
+    }
+    main {
+      max-width: 800px;
+      margin: 35px auto;
+      padding: 28px;
+      background: white;
+      border-radius: 16px;
+    }
+    a { color: #514135; }
+    article {
+      padding: 20px;
+      margin-top: 20px;
+      background: #f8f5f0;
+      border-radius: 10px;
+      overflow-wrap: anywhere;
+    }
+    h2 { font-size: 18px; }
+    p { line-height: 1.5; }
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      background: #e8ded2;
+      border-radius: 20px;
+      font-weight: bold;
+    }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="cont.html">← Contul meu</a>
+    <h1>Comenzile mele</h1>
+    <p id="message" role="status" aria-live="polite">
+      Se încarcă…
+    </p>
+    <p id="login" hidden>
+      <a href="cont.html">Autentifică-te pentru a vedea comenzile</a>
+    </p>
+    <div id="orders"></div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const message = document.getElementById("message");
+    const list = document.getElementById("orders");
+    const money = new Intl.NumberFormat("ro-RO", {
+      style: "currency", currency: "RON"
+    });
+    const statuses = {
+      noua: "Comandă primită",
+      confirmata: "Confirmată",
+      expediata: "Expediată",
+      livrata: "Livrată",
+      anulata: "Anulată"
+    };
+
+    function addText(parent, tag, text) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
+
+    async function loadOrders() {
+      try {
+        if (!window.supabase) {
+          throw new Error("Conexiunea nu s-a încărcat.");
+        }
+
+        const client = window.supabase.createClient(
+          "https://snnaumexpevrobnbtebn.supabase.co",
+          "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+        );
+
+        client.auth.onAuthStateChange((event) => {
+          if (event === "SIGNED_OUT") {
+            list.replaceChildren();
+            window.location.replace("cont.html");
+          }
+        });
+
+        const { data: auth, error: authError } =
+          await client.auth.getUser();
+
+        if (authError || !auth.user) {
+          message.textContent = "Trebuie să fii autentificat.";
+          document.getElementById("login").hidden = false;
+          return;
+        }
+
+        const { data: orders, error } = await client
+          .from("orders")
+          .select(`
+            id, created_at, status, full_name,
+            county, city, address, shipping_ron, total_ron,
+            order_items(product_name, quantity, unit_price_ron)
+          `)
+          .eq("user_id", auth.user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+
+        // Nu afișăm date dacă între timp utilizatorul s-a deconectat.
+        const { data: current } = await client.auth.getSession();
+        if (current.session?.user.id !== auth.user.id) {
+          window.location.replace("cont.html");
+          return;
+        }
+
+        message.textContent = orders.length
+          ? "" : "Nu ai încă nicio comandă.";
+
+        for (const order of orders) {
+          const card = document.createElement("article");
+          list.appendChild(card);
+
+          addText(card, "h2", "Comanda " + order.id);
+          addText(card, "p",
+            new Date(order.created_at).toLocaleString("ro-RO", {
+              timeZone: "Europe/Bucharest"
+            }));
+
+          const badge = addText(card, "p",
+            statuses[order.status] || order.status);
+          badge.className = "badge";
+
+          for (const item of order.order_items || []) {
+            const bani = Math.round(Number(item.unit_price_ron) * 100);
+            addText(card, "p",
+              `${item.product_name} × ${item.quantity} — ${
+                money.format(bani * item.quantity / 100)
+              }`);
+          }
+
+          addText(card, "p",
+            "Livrare: " + money.format(Number(order.shipping_ron)));
+          addText(card, "strong",
+            "Total: " + money.format(Number(order.total_ron)));
+          addText(card, "p", "Plată: ramburs la livrare");
+          addText(card, "p",
+            `Livrare către: ${order.full_name}, ${order.address}, ${order.city}, ${order.county}`);
+        }
+      } catch (error) {
+        message.textContent =
+          "Comenzile nu s-au încărcat. Reîncarcă pagina.";
+        console.error(error);
+      }
+    }
+
+    loadOrders();
+  </script>
+</body>
+</html>
