@@ -257,6 +257,22 @@
 
         if (error) throw error;
         if (!orderId) throw new Error("Nu am primit numărul comenzii.");
+        try {
+  const { data: mailResult, error: mailError } =
+    await client.functions.invoke("confirmare-comanda", {
+      body: { order_id: orderId }
+    });
+
+  if (mailError || !mailResult?.ok) {
+    alert(
+      "Comanda a fost salvată, dar confirmarea pe e-mail nu a putut fi trimisă. O găsești în Comenzile mele."
+    );
+  }
+} catch (_) {
+  alert(
+    "Comanda a fost salvată. Confirmarea pe e-mail nu a putut fi verificată."
+  );
+}
 
         form.hidden = true;
         summary.hidden = true;
