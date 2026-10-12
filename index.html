@@ -95,5 +95,75 @@
     <p>Frumusețe naturală. Stil fără compromisuri.</p>
   </section>
   <footer id="contact">ARIES13 · Contact: completează adresa ta de e-mail</footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+async function loadProduct() {
+  const card = document.getElementById("produs-0001");
+
+  try {
+    const client = window.supabase.createClient(
+      "https://snnaumexpevrobnbtebn.supabase.co",
+      "sb_publishable_8OA3WK4gsMohLmL-lYZ80A_c3CnPAZ2"
+    );
+
+    const { data: product, error } = await client
+      .from("products")
+      .select("*")
+      .eq("id", "0001")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!product) {
+      card.textContent = "Produsul nu este disponibil.";
+      return;
+    }
+
+    card.replaceChildren();
+
+    const image = document.createElement("img");
+    image.src = product.image_url;
+    image.alt = product.name;
+    image.style.cssText =
+      "width:100%;height:320px;object-fit:contain;border-radius:8px;";
+    card.appendChild(image);
+
+    function addText(tag, text) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      card.appendChild(element);
+      return element;
+    }
+
+    addText("h3", product.name);
+    addText("p", "Extensii din păr natural");
+    addText("p", `${product.length_cm} cm · ${product.weight_g} g`);
+    addText("p", `${product.color} · ${product.attachment}`);
+
+    const price = addText("p", new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: "RON"
+    }).format(Number(product.price_ron)));
+    price.style.cssText = "font-size:24px;font-weight:bold;";
+
+    addText("p", product.stock > 0
+      ? `Stoc: ${product.stock} bucăți`
+      : "Stoc epuizat");
+
+    const button = addText("button", product.stock > 0
+      ? "Comenzi disponibile în curând"
+      : "Indisponibil");
+    button.type = "button";
+    button.disabled = true;
+    button.style.cssText = "opacity:0.6;cursor:default;";
+  } catch (error) {
+    card.textContent =
+      "Produsul nu s-a încărcat. Reîncarcă pagina.";
+    console.error(error);
+  }
+}
+
+loadProduct();
+</script>
 </body>
 </html>
