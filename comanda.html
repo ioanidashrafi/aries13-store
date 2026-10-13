@@ -23,14 +23,14 @@
     a { color: #514135; }
     h1 { font-size: 28px; }
     label { display: block; margin-top: 18px; }
-    input, textarea, button {
+    input, textarea, select, button {
       width: 100%;
       padding: 13px;
       margin-top: 8px;
       border-radius: 8px;
       font: inherit;
     }
-    input, textarea { border: 1px solid #b8ada3; }
+    input, textarea, select { border: 1px solid #b8ada3; }
     textarea { resize: vertical; }
     button {
       border: 0;
@@ -54,6 +54,7 @@
   <main>
     <a href="cos.html">← Înapoi la coș</a>
     <h1>Finalizează comanda</h1>
+    <p><a href="comenzi.html">Comenzile mele</a></p>
     <p id="status" role="status" aria-live="polite">
       Se verifică produsele și contul…
     </p>
@@ -85,14 +86,11 @@
 
         <p><strong>Livrare gratuită în România.</strong></p>
         <label for="paymentMethod">Metoda de plată</label>
-<select id="paymentMethod" style="
-  width:100%; padding:13px; margin-top:8px;
-  border:1px solid #b8ada3; border-radius:8px; font:inherit;
-">
-  <option value="ramburs">Ramburs la livrare</option>
-  <option value="card">Card — TEST, fără bani reali</option>
-</select>
-<p>Pentru plata de test folosește doar un card fictiv Stripe.</p>
+        <select id="paymentMethod">
+          <option value="ramburs">Ramburs la livrare</option>
+          <option value="card">Card — TEST, fără bani reali</option>
+        </select>
+        <p id="testNotice" hidden>Plată simulată: folosește doar un card fictiv Stripe. Comanda de test nu se expediază.</p>
         <button id="submitOrder" type="submit">Trimite comanda</button>
       </fieldset>
     </form>
@@ -122,6 +120,78 @@
     let cart;
     let subtotalBani = 0;
     let busy = false;
+    const resumeKey = "aries13-resume-card-order";
+    const paymentMethodField = document.getElementById("paymentMethod");
+    paymentMethodField.addEventListener("change", () => {
+      document.getElementById("testNotice").hidden = paymentMethodField.value !== "card";
+      submit.textContent = (paymentMethodField.value === "card"
+        ? "Continuă la plata de test — " : "Trimite comanda — ") + money.format(subtotalBani / 100);
+    });
+
+    async function showCardOrder(orderId, openImmediately = false) {
+      const { data: order, error } = await client.from("orders")
+        .select("id, user_id, status, payment_method, payment_status, is_test, total_ron")
+        .eq("id", orderId).eq("user_id", user.id).maybeSingle();
+      if (error) throw error;
+      if (!order || order.payment_method !== "card" || !order.is_test) {
+        throw new Error("Comanda de test nu a fost găsită în contul tău.");
+      }
+      form.hidden = true;
+      summary.hidden = true;
+      const oldButton = document.getElementById("retryPayment");
+      if (oldButton) oldButton.remove();
+      if (order.payment_status === "paid") {
+        status.textContent = `Comanda ${order.id}: plata de test este confirmată. Nu se expediază.`;
+        try { sessionStorage.removeItem(resumeKey); } catch (_) {}
+        return;
+      }
+      if (order.status !== "noua" || order.payment_status !== "unpaid") {
+        status.textContent = `Comanda ${order.id} nu mai poate fi plătită. Verifică istoricul comenzilor.`;
+        try { sessionStorage.removeItem(resumeKey); } catch (_) {}
+        return;
+      }
+      const retry = document.createElement("button");
+      retry.id = "retryPayment";
+      retry.type = "button";
+      retry.textContent = "Reia plata de test — " + money.format(Number(order.total_ron));
+      status.after(retry);
+      status.textContent = `Comanda ${order.id} este salvată și așteaptă plata de test.`;
+      try {
+        sessionStorage.setItem(resumeKey, JSON.stringify({ id: order.id, userId: user.id }));
+      } catch (_) {}
+
+      async function openPayment() {
+        if (retry.disabled) return;
+        retry.disabled = true;
+        status.textContent = "Se deschide pagina Stripe de test…";
+        try {
+          const { data, error: checkoutError } = await client.functions.invoke(
+            "stripe-checkout", { body: { order_id: order.id } }
+          );
+          if (checkoutError) {
+            let reason = checkoutError.message;
+            if (checkoutError.context instanceof Response) {
+              const details = await checkoutError.context.clone().json().catch(() => null);
+              if (details?.error) reason = details.error;
+            }
+            throw new Error(reason);
+          }
+          if (!data?.url) throw new Error(data?.error || "Nu am primit pagina Stripe.");
+          const paymentUrl = new URL(data.url);
+          if (paymentUrl.protocol !== "https:" || paymentUrl.hostname !== "checkout.stripe.com") {
+            throw new Error("Adresa paginii de plată este invalidă.");
+          }
+          window.location.assign(paymentUrl.href);
+        } catch (paymentError) {
+          status.textContent = `Comanda ${order.id} este salvată, dar neplătită. ` +
+            paymentError.message + " Folosește Reia plata pentru aceeași comandă.";
+          retry.disabled = false;
+        }
+      }
+      retry.addEventListener("click", openPayment);
+      if (openImmediately) await openPayment();
+    }
+
 
     function readCart() {
       const saved = JSON.parse(
@@ -198,7 +268,7 @@
       addSummary("Total: " + money.format(subtotalBani / 100), true);
       summary.hidden = false;
       submit.textContent =
-        "Trimite comanda — " + money.format(subtotalBani / 100);
+        (paymentMethodField.value === "card" ? "Continuă la plata de test — " : "Trimite comanda — ") + money.format(subtotalBani / 100);
     }
 
     async function requestId(payload) {
@@ -257,89 +327,24 @@
           p_address: document.getElementById("address").value.trim()
         };
 
-        const paymentMethod =
-  document.getElementById("paymentMethod").value;
-
-const id = await requestId({
-  user: user.id,
-  paymentMethod,
-  ...payload
-});
-
-const procedure = paymentMethod === "card"
-  ? "prepare_card_order"
-  : "place_order";
-
-const parameters = { p_request_id: id, ...payload };
-
-if (paymentMethod === "card") {
-  parameters.p_expected_total = subtotalBani / 100;
-}
-
-const { data: orderId, error } =
-  await client.rpc(procedure, parameters);
+        const paymentMethod = paymentMethodField.value;
+        const id = await requestId({ user: user.id, paymentMethod, ...payload });
+        const procedure = paymentMethod === "card" ? "prepare_card_order" : "place_order";
+        const parameters = { p_request_id: id, ...payload };
+        if (paymentMethod === "card") parameters.p_expected_total = subtotalBani / 100;
+        const { data: orderId, error } = await client.rpc(procedure, parameters);
 
         if (error) throw error;
         if (!orderId) throw new Error("Nu am primit numărul comenzii.");
         if (paymentMethod === "card") {
-  form.hidden = true;
-  summary.hidden = true;
-
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.textContent = "Reia plata de test";
-  retry.hidden = true;
-  status.after(retry);
-
-  async function openPayment() {
-    retry.disabled = true;
-    retry.hidden = true;
-    status.textContent = "Se deschide pagina Stripe de test…";
-
-    try {
-      const { data, error: checkoutError } =
-        await client.functions.invoke("stripe-checkout", {
-          body: { order_id: orderId }
-        });
-
-      if (checkoutError) {
-        let reason = checkoutError.message;
-
-        if (checkoutError.context instanceof Response) {
-          const details = await checkoutError.context
-            .clone().json().catch(() => null);
-          if (details?.error) reason = details.error;
+          form.hidden = true;
+          summary.hidden = true;
+          try {
+            sessionStorage.setItem(resumeKey, JSON.stringify({ id: orderId, userId: user.id }));
+          } catch (_) {}
+          await showCardOrder(orderId, true);
+          return;
         }
-
-        throw new Error(reason);
-      }
-
-      if (!data?.url) {
-        throw new Error(data?.error || "Nu am primit pagina Stripe.");
-      }
-
-      const paymentUrl = new URL(data.url);
-      if (paymentUrl.protocol !== "https:" ||
-          paymentUrl.hostname !== "checkout.stripe.com") {
-        throw new Error("Adresa paginii de plată este invalidă.");
-      }
-
-      window.location.assign(paymentUrl.href);
-    } catch (paymentError) {
-      status.textContent =
-        `Comanda ${orderId} este salvată, dar neplătită. ` +
-        paymentError.message +
-        " Folosește Reia plata; nu crea încă o comandă.";
-
-      retry.hidden = false;
-      retry.disabled = false;
-    }
-  }
-
-  retry.addEventListener("click", openPayment);
-  await openPayment();
-  return;
-}
         try {
   const { data: mailResult, error: mailError } =
     await client.functions.invoke("confirmare-comanda", {
@@ -397,6 +402,20 @@ const { data: orderId, error } =
         }
 
         user = data.user;
+        let resumeId = new URLSearchParams(window.location.search).get("order");
+        if (!resumeId) {
+          try {
+            const pending = JSON.parse(sessionStorage.getItem(resumeKey) || "null");
+            if (pending?.userId === user.id) resumeId = pending.id;
+          } catch (_) {}
+        }
+        if (resumeId) {
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeId)) {
+            throw new Error("Numărul comenzii este invalid.");
+          }
+          await showCardOrder(resumeId);
+          return;
+        }
         cart = readCart();
         await loadSummary();
         status.textContent = "";
