@@ -105,7 +105,7 @@
         const { data: orders, error } = await client
           .from("orders")
           .select(`
-            id, created_at, status, full_name,
+            id, created_at, status, full_name, email_sent_at,
             county, city, address, shipping_ron, total_ron,
 payment_method, payment_status, is_test,
             order_items(product_name, quantity, unit_price_ron)
@@ -126,6 +126,20 @@ payment_method, payment_status, is_test,
           ? "" : "Nu ai încă nicio comandă.";
 
         for (const order of orders) {
+          if (order.payment_method === "card" &&
+    order.payment_status === "paid" &&
+    order.status !== "anulata" &&
+    !order.email_sent_at) {
+  try {
+    const { error: mailError } = await client.functions.invoke(
+      "confirmare-comanda",
+      { body: { order_id: order.id } }
+    );
+    if (mailError) console.error("Confirmare e-mail:", mailError);
+  } catch (error) {
+    console.error("Confirmare e-mail:", error);
+  }
+}
           const card = document.createElement("article");
           list.appendChild(card);
 
