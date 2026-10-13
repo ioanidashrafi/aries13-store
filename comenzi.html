@@ -107,6 +107,7 @@
           .select(`
             id, created_at, status, full_name,
             county, city, address, shipping_ron, total_ron,
+payment_method, payment_status, is_test,
             order_items(product_name, quantity, unit_price_ron)
           `)
           .eq("user_id", auth.user.id)
@@ -150,7 +151,15 @@
             "Livrare: " + money.format(Number(order.shipping_ron)));
           addText(card, "strong",
             "Total: " + money.format(Number(order.total_ron)));
-          addText(card, "p", "Plată: ramburs la livrare");
+         addText(card, "p", order.payment_method === "card"
+  ? "Plată: card — " +
+    (order.payment_status === "paid" ? "plătită" :
+     order.payment_status === "expired" ? "expirată" : "în așteptare")
+  : "Plată: ramburs la livrare");
+
+if (order.is_test) {
+  addText(card, "p", "COMANDĂ DE TEST — fără bani reali. Nu se expediază.");
+}
           addText(card, "p",
             `Livrare către: ${order.full_name}, ${order.address}, ${order.city}, ${order.county}`);
         }
