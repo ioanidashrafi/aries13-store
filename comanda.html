@@ -84,7 +84,15 @@
                   placeholder="Stradă, număr, bloc, scară, etaj, apartament"></textarea>
 
         <p><strong>Livrare gratuită în România.</strong></p>
-        <p>Plată: <strong>ramburs la livrare</strong>.</p>
+        <label for="paymentMethod">Metoda de plată</label>
+<select id="paymentMethod" style="
+  width:100%; padding:13px; margin-top:8px;
+  border:1px solid #b8ada3; border-radius:8px; font:inherit;
+">
+  <option value="ramburs">Ramburs la livrare</option>
+  <option value="card">Card — TEST, fără bani reali</option>
+</select>
+<p>Pentru plata de test folosește doar un card fictiv Stripe.</p>
         <button id="submitOrder" type="submit">Trimite comanda</button>
       </fieldset>
     </form>
@@ -249,11 +257,27 @@
           p_address: document.getElementById("address").value.trim()
         };
 
-        const id = await requestId({ user: user.id, ...payload });
+        const paymentMethod =
+  document.getElementById("paymentMethod").value;
 
-        const { data: orderId, error } = await client.rpc(
-          "place_order", { p_request_id: id, ...payload }
-        );
+const id = await requestId({
+  user: user.id,
+  paymentMethod,
+  ...payload
+});
+
+const procedure = paymentMethod === "card"
+  ? "prepare_card_order"
+  : "place_order";
+
+const parameters = { p_request_id: id, ...payload };
+
+if (paymentMethod === "card") {
+  parameters.p_expected_total = subtotalBani / 100;
+}
+
+const { data: orderId, error } =
+  await client.rpc(procedure, parameters);
 
         if (error) throw error;
         if (!orderId) throw new Error("Nu am primit numărul comenzii.");
