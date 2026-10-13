@@ -281,6 +281,65 @@ const { data: orderId, error } =
 
         if (error) throw error;
         if (!orderId) throw new Error("Nu am primit numărul comenzii.");
+        if (paymentMethod === "card") {
+  form.hidden = true;
+  summary.hidden = true;
+
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Reia plata de test";
+  retry.hidden = true;
+  status.after(retry);
+
+  async function openPayment() {
+    retry.disabled = true;
+    retry.hidden = true;
+    status.textContent = "Se deschide pagina Stripe de test…";
+
+    try {
+      const { data, error: checkoutError } =
+        await client.functions.invoke("stripe-checkout", {
+          body: { order_id: orderId }
+        });
+
+      if (checkoutError) {
+        let reason = checkoutError.message;
+
+        if (checkoutError.context instanceof Response) {
+          const details = await checkoutError.context
+            .clone().json().catch(() => null);
+          if (details?.error) reason = details.error;
+        }
+
+        throw new Error(reason);
+      }
+
+      if (!data?.url) {
+        throw new Error(data?.error || "Nu am primit pagina Stripe.");
+      }
+
+      const paymentUrl = new URL(data.url);
+      if (paymentUrl.protocol !== "https:" ||
+          paymentUrl.hostname !== "checkout.stripe.com") {
+        throw new Error("Adresa paginii de plată este invalidă.");
+      }
+
+      window.location.assign(paymentUrl.href);
+    } catch (paymentError) {
+      status.textContent =
+        `Comanda ${orderId} este salvată, dar neplătită. ` +
+        paymentError.message +
+        " Folosește Reia plata; nu crea încă o comandă.";
+
+      retry.hidden = false;
+      retry.disabled = false;
+    }
+  }
+
+  retry.addEventListener("click", openPayment);
+  await openPayment();
+  return;
+}
         try {
   const { data: mailResult, error: mailError } =
     await client.functions.invoke("confirmare-comanda", {
